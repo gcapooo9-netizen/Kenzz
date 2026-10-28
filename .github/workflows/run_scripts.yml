@@ -1,4 +1,4 @@
-name: Run Kenzz Scrapers
+Name: Run Kenzz Scrapers
 
 on:
   workflow_dispatch:
@@ -21,7 +21,7 @@ jobs:
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install requests
+        pip install requests beautifulsoup4
 
     - name: Run Kenzz script
       run: python Kenzz.py
