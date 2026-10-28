@@ -9,7 +9,7 @@ TOKEN = "8996279782:AAEJ-n3vP4K9bts15GC0_htKMceRC4yHj8E"
 CHAT = "@gcapooo9"
 DATA_FILE = "prices_cache.json"
 
-# لستة المنتجات المدمجة (تم إضافة الروابط الخاصة بك بنجاح)
+# لستة المنتجات (مختصرة لأول 150 منتج)
 PRODUCTS = [
     "https://kenzz.com/en/product/222SEJ8QC6NU/3-Piece-Round-Oven-Casserole-Set",
     "https://kenzz.com/en/product/23L8H6C2MMTL/4-In-1-Lava-Transparent-Laptop-Protector-Stickers",
@@ -190,14 +190,177 @@ PRODUCTS = [
     "https://kenzz.com/en/product/5LP5PZMELG5B/Fresh-Professional-Cooker-90-x-60-cm-5-Burners-Black",
     "https://kenzz.com/en/product/5LTVDY2QV4RQ/Fine-Fluffy-Tissue-Box-500-Tissue-3-Pcs",
     "https://kenzz.com/en/product/5LYJH77TWMES/Fresh-Professional-Style-Gas-Cooker-5-Burners-Silver-500008130",
-    "https://kenzz.com/en/product/5M4UTF6QWNAF/Midea-Dishwasher-14-Person-Capacity-Smart-Wi-Fi-Mdwef1433D(Ss)-Wi-Eg",
-    "https://kenzz.com/en/product/5N286M5J8ZDP/Passap-De-Frost-Horizontal-Deep-Freezer-200-Liters-Es241-Silver",
-    "https://kenzz.com/en/product/5PJSQ72QNSHY/Vegetables-Manual-Chopper-2-L",
-    "https://kenzz.com/en/product/5PQ9334UTVCC/M%26G-Mechanical-Pencil-0.5mm-with-Assorted-Colors-for-Precise-Writing-and-Drafting",
-    "https://kenzz.com/en/product/5Q4XJS47XHF2/2-Piece-Silicone-Oven-Gloves-Multicolor",
-    "https://kenzz.com/en/product/5R4AJ9RG6TUA/FNT-M540YB-Fresh-Refrigerator-426-Liters-Black",
-    "https://kenzz.com/en/product/5R8NV4WE6NPB/MQ-3025-Hand-Blender-700-W-White",
-    "https://kenzz.com/en/product/5RW4FJUTVDXN/Eco-500006450-Fresh-Electric-Oven-With-Grill-48-Liters-Black",
-    "https://kenzz.com/en/product/5TDF2CD49Y39/Fresh-Solo-Microwave-28L-900W-Silver-FMW-28EC-B",
-    "https://kenzz.com/en/product/5TQ9BATLM857/Professional-Cleaning-Kit-6-in-1-for-Ovens%2C-Grills%2C-and-Surfaces",
-    "https://kenzz.com/en/product/5TZ79LP
+    "https://kenzz.com/en/product/5M4UTF6QWNAF/Midea-Dishwasher-14-Person-Capacity-Smart-Wi-Fi-Mdwef1433D(Ss)-Wi-Eg"
+]
+
+H = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+    "Accept-Language": "ar-EG,ar;q=0.9,en-US;q=0.8,en;q=0.7",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8"
+}
+
+AR = str.maketrans("٠١٢٣٤٥٦٧٨٩٫٬", "0123456789.,")
+
+def load_data():
+    if os.path.exists(DATA_FILE):
+        try:
+            with open(DATA_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except:
+            return {}
+    return {}
+
+def save_data(data):
+    try:
+        with open(DATA_FILE, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=4)
+    except Exception as e:
+        print(f"خطأ في حفظ الملف: {e}")
+
+stored_data = load_data()
+
+def send(msg):
+    u = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
+    try:
+        requests.post(u, json={"chat_id": CHAT, "text": msg, "parse_mode": "Markdown"}, timeout=10)
+    except Exception as e:
+        print(f"خطأ في إرسال رسالة التليجرام: {e}")
+
+def check_prices():
+    global stored_data
+    
+    total_products_count = len(PRODUCTS)
+    if total_products_count == 0:
+        print("\n[⚠️] قائمة المنتجات فارغة حالياً!")
+        return
+        
+    print(f"\n[🔄] بدء فحص عدد {total_products_count} منتج بصمت...")
+    
+    changes_count = 0
+    checked_count = 0
+    current_time_str = datetime.now().strftime("%d/%m/%Y %H:%M")
+    
+    for index, url in enumerate(PRODUCTS, 1):
+        try:
+            response = requests.get(url, headers=H, timeout=15, allow_redirects=True)
+            
+            if response.status_code != 200:
+                print(f"[{index}/{total_products_count}] فشل فحص المنتج (كود الاستجابة: {response.status_code})")
+                continue
+            
+            soup = BeautifulSoup(response.text, 'html.parser')
+            current_price = None
+            product_name = None
+            
+            for script in soup.find_all('script', type='application/ld+json'):
+                try:
+                    data = json.loads(script.string)
+                    data_items = data if isinstance(data, list) else [data]
+                    
+                    for item in data_items:
+                        if isinstance(item, dict) and item.get('@type') == 'Product':
+                            product_name = item.get('name')
+                            offers = item.get('offers')
+                            if isinstance(offers, dict):
+                                p = offers.get('price') or offers.get('lowPrice')
+                                if p:
+                                    current_price = float(p)
+                                    break
+                            elif isinstance(offers, list) and len(offers) > 0:
+                                p = offers[0].get('price')
+                                if p:
+                                    current_price = float(p)
+                                    break
+                    if current_price:
+                        break
+                except:
+                    pass
+            
+            if not product_name:
+                h1 = soup.find('h1')
+                product_name = h1.get_text().strip() if h1 else "منتج بدون اسم"
+            
+            if not current_price:
+                price_element = (
+                    soup.find('span', {'class': 'price'}) or 
+                    soup.find('div', {'class': 'price'}) or 
+                    soup.find('span', {'class': 'current-price'}) or
+                    soup.find('span', class_=lambda x: x and 'price' in x.lower())
+                )
+                if price_element:
+                    price_text = price_element.get_text().strip().translate(AR)
+                    price_str = ''.join(c for c in price_text if c.isdigit() or c == '.')
+                    if price_str:
+                        current_price = float(price_str)
+            
+            if current_price:
+                checked_count += 1
+                is_new_product = url not in stored_data
+                
+                if is_new_product:
+                    stored_data[url] = {
+                        "name": product_name,
+                        "current_price": current_price,
+                        "history": [{"price": current_price, "time": current_time_str}]
+                    }
+                else:
+                    item_data = stored_data[url]
+                    old_price = item_data["current_price"]
+                    
+                    if current_price != old_price:
+                        prices_list = [h["price"] for h in item_data["history"]]
+                        prices_list.append(current_price)
+                        avg_price = round(sum(prices_list) / len(prices_list), 2)
+                        lowest_historical_price = min(prices_list[:-1]) if len(prices_list) > 1 else old_price
+                        
+                        if current_price < old_price:
+                            diff_pct = round(((old_price - current_price) / old_price) * 100, 1)
+                            discount_text = f"📉 نسبة الخصم: %{diff_pct}"
+                        else:
+                            diff_pct = round(((current_price - old_price) / old_price) * 100, 1)
+                            discount_text = f"📈 نسبة الزيادة: %{diff_pct}"
+                        
+                        is_lowest = current_price <= lowest_historical_price
+                        tagline = "🔥 أقل سعر تاريخي!" if is_lowest else "📊 تحديث جديد في السعر"
+                        
+                        item_data["current_price"] = current_price
+                        item_data["name"] = product_name
+                        item_data["history"].append({"price": current_price, "time": current_time_str})
+                        
+                        history_text = ""
+                        for h in reversed(item_data["history"][-5:]):
+                            history_text += f"➡️ EGP {h['price']} – {h['time']}\n"
+                        
+                        msg = (
+                            f"✨ عرض كنز ✨\n\n"
+                            f"🛒 {product_name}\n\n"
+                            f"💵 السعر الحالي: EGP {current_price}\n"
+                            f"💵 السعر السابق: EGP {old_price}\n"
+                            f"📊 متوسط الأسعار: EGP {avg_price}\n"
+                            f"{discount_text}\n"
+                            f"{tagline}\n\n"
+                            f"📜 تاريخ الأسعار:\n"
+                            f"{history_text}\n"
+                            f"🛍️ **رابط المنتج:**\n{url}\n\n"
+                            f"🔗 [اضغط هنا للشراء مباشرة]({url})"
+                        )
+                        send(msg)
+                        changes_count += 1
+                
+                print(f"[{index}/{total_products_count}] ✅ تم الفحص - {product_name} | السعر: {current_price}")
+            else:
+                print(f"[{index}/{total_products_count}] ⚠️ لم يتم العثور على السعر.")
+            
+            time.sleep(1.5)
+            
+        except Exception as e:
+            print(f"[{index}/{total_products_count}] ❌ خطأ: {e}")
+            
+    save_data(stored_data)
+    print(f"\n[⏳] انتهت الدورة الحالية (تم فحص {checked_count} منتج، رصد {changes_count} تغيير).")
+
+if __name__ == "__main__":
+    print("البوت يعمل الآن في الخلفية لمراقبة الأسعار بصمت...")
+    while True:
+        check_prices()
+        time.sleep(900)
