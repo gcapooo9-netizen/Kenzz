@@ -1,4 +1,4 @@
-Name: Run Kenzz Scrapers
+name: Run Kenzz Scrapers
 
 on:
   workflow_dispatch:
