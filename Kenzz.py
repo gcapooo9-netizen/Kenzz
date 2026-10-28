@@ -95,7 +95,7 @@ PRODUCTS = [
     "https://kenzz.com/en/product/3Q3RFZ859QAH/Tornado-Semi-Automatic-Washing-Machine%2C-7-Kg-Black-Tmh-Hs07C-(Wk)",
     "https://kenzz.com/en/product/3QJHMRDXDQ4R/Ariston-Dishwasher-14-Place-Settings-Front-Load-Silver-LFC-3O33-WLTX",
     "https://kenzz.com/en/product/3QU2BS6X9S2K/Mx40-Mobile-Tv-Stand",
-    "https://kenzz.com/en/product/3R667SBNRC3F/Fresh-Microwave-36-Liters-Black-Fmw-36Kc-B",
+    "https://kenzz.com/en/product/3R667SBNRC3F/Fresh-Microwave-36-Liters-Black-With-Grill-R250Mgr",
     "https://kenzz.com/en/product/3S5LTV3L4NT9/Suede-Crossbody-Bag-for-Women-with-Strass-Black-Silver-RM-127",
     "https://kenzz.com/en/product/3SBW3KQ8HVB6/SK-005-Electric-Airfryer-8.5-liters-Black",
     "https://kenzz.com/en/product/3TVU4SC6KXBZ/Wooden-Shape-Sorter-Game",
@@ -234,9 +234,9 @@ def check_prices():
         print("\n[⚠️] قائمة المنتجات فارغة حالياً!")
         return
         
-    print(f"\n[🔄] بدء فحص عدد {total_products_count} منتج بصمت...")
+    print(f"\n[🔄] بدء فحص عدد {total_products_count} منتج (تنبيهات الخصومات > 20% فقط)...")
     
-    changes_count = 0
+    notifications_count = 0
     checked_count = 0
     current_time_str = datetime.now().strftime("%d/%m/%Y %H:%M")
     
@@ -298,6 +298,7 @@ def check_prices():
                 is_new_product = url not in stored_data
                 
                 if is_new_product:
+                    # تسجيل المنتج الجديد بصمت
                     stored_data[url] = {
                         "name": product_name,
                         "current_price": current_price,
@@ -307,45 +308,49 @@ def check_prices():
                     item_data = stored_data[url]
                     old_price = item_data["current_price"]
                     
+                    # الفحص يتم فقط في حالة انخفاض السعر
+                    if current_price < old_price:
+                        diff_pct = round(((old_price - current_price) / old_price) * 100, 1)
+                        
+                        # شرط أن تكون نسبة التخفيض أكبر من 20%
+                        if diff_pct > 20:
+                            prices_list = [h["price"] for h in item_data["history"]]
+                            prices_list.append(current_price)
+                            avg_price = round(sum(prices_list) / len(prices_list), 2)
+                            lowest_historical_price = min(prices_list[:-1]) if len(prices_list) > 1 else old_price
+                            
+                            is_lowest = current_price <= lowest_historical_price
+                            tagline = "🔥 أقل سعر تاريخي بخصم ضخم!" if is_lowest else "📉 انخفاض كبير في السعر!"
+                            
+                            item_data["current_price"] = current_price
+                            item_data["name"] = product_name
+                            item_data["history"].append({"price": current_price, "time": current_time_str})
+                            
+                            history_text = ""
+                            for h in reversed(item_data["history"][-5:]):
+                                history_text += f"➡️ EGP {h['price']} – {h['time']}\n"
+                            
+                            msg = (
+                                f"🔥 تنبيه خصم قوي (> 20%) 🔥\n\n"
+                                f"🛒 {product_name}\n\n"
+                                f"💵 السعر الحالي: EGP {current_price}\n"
+                                f"💵 السعر السابق: EGP {old_price}\n"
+                                f"📊 متوسط الأسعار: EGP {avg_price}\n"
+                                f"📉 نسبة الخصم: %{diff_pct}\n"
+                                f"{tagline}\n\n"
+                                f"📜 تاريخ الأسعار:\n"
+                                f"{history_text}\n"
+                                f"🛍️ **رابط المنتج:**\n{url}\n\n"
+                                f"🔗 [اضغط هنا للشراء مباشرة]({url})"
+                            )
+                            send(msg)
+                            notifications_count += 1
+                    
+                    # تحديث السعر في الكاش دائماً للمقارنة الصحيحة لاحقاً
+                    item_data["current_price"] = current_price
+                    item_data["name"] = product_name
                     if current_price != old_price:
-                        prices_list = [h["price"] for h in item_data["history"]]
-                        prices_list.append(current_price)
-                        avg_price = round(sum(prices_list) / len(prices_list), 2)
-                        lowest_historical_price = min(prices_list[:-1]) if len(prices_list) > 1 else old_price
-                        
-                        if current_price < old_price:
-                            diff_pct = round(((old_price - current_price) / old_price) * 100, 1)
-                            discount_text = f"📉 نسبة الخصم: %{diff_pct}"
-                        else:
-                            diff_pct = round(((current_price - old_price) / old_price) * 100, 1)
-                            discount_text = f"📈 نسبة الزيادة: %{diff_pct}"
-                        
-                        is_lowest = current_price <= lowest_historical_price
-                        tagline = "🔥 أقل سعر تاريخي!" if is_lowest else "📊 تحديث جديد في السعر"
-                        
-                        item_data["current_price"] = current_price
-                        item_data["name"] = product_name
                         item_data["history"].append({"price": current_price, "time": current_time_str})
-                        
-                        history_text = ""
-                        for h in reversed(item_data["history"][-5:]):
-                            history_text += f"➡️ EGP {h['price']} – {h['time']}\n"
-                        
-                        msg = (
-                            f"✨ عرض كنز ✨\n\n"
-                            f"🛒 {product_name}\n\n"
-                            f"💵 السعر الحالي: EGP {current_price}\n"
-                            f"💵 السعر السابق: EGP {old_price}\n"
-                            f"📊 متوسط الأسعار: EGP {avg_price}\n"
-                            f"{discount_text}\n"
-                            f"{tagline}\n\n"
-                            f"📜 تاريخ الأسعار:\n"
-                            f"{history_text}\n"
-                            f"🛍️ **رابط المنتج:**\n{url}\n\n"
-                            f"🔗 [اضغط هنا للشراء مباشرة]({url})"
-                        )
-                        send(msg)
-                        changes_count += 1
                 
                 print(f"[{index}/{total_products_count}] ✅ تم الفحص - {product_name} | السعر: {current_price}")
             else:
@@ -357,10 +362,10 @@ def check_prices():
             print(f"[{index}/{total_products_count}] ❌ خطأ: {e}")
             
     save_data(stored_data)
-    print(f"\n[⏳] انتهت الدورة الحالية (تم فحص {checked_count} منتج، رصد {changes_count} تغيير).")
+    print(f"\n[⏳] انتهت الدورة الحالية (تم فحص {checked_count} منتج، وإرسال {notifications_count} تنبيه خصم مطابق للشروط).")
 
 if __name__ == "__main__":
-    print("البوت يعمل الآن في الخلفية لمراقبة الأسعار بصمت...")
+    print("البوت يعمل الآن في الخلفية (يبحث عن الخصومات التي تزيد عن 20% فقط)...")
     while True:
         check_prices()
         time.sleep(900)
