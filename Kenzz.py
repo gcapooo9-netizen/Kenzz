@@ -234,7 +234,7 @@ def check_prices():
         print("\n[⚠️] قائمة المنتجات فارغة حالياً!")
         return
         
-    print(f"\n[🔄] بدء فحص عدد {total_products_count} منتج (تنبيهات الخصومات > 20% فقط)...")
+    print(f"\n[🔄] بدء فحص عدد {total_products_count} منتج (تنبيهات الخصومات الحقيقية بين 20% و 70% فقط)...")
     
     notifications_count = 0
     checked_count = 0
@@ -312,8 +312,8 @@ def check_prices():
                     if current_price < old_price:
                         diff_pct = round(((old_price - current_price) / old_price) * 100, 1)
                         
-                        # شرط أن تكون نسبة التخفيض أكبر من 20%
-                        if diff_pct > 20:
+                        # [تعديل الأمان]: فلترة الخصومات الوهمية اللي أكتر من 70% عشان نتجنب هبد السيرفرات
+                        if 20 < diff_pct <= 70:
                             prices_list = [h["price"] for h in item_data["history"]]
                             prices_list.append(current_price)
                             avg_price = round(sum(prices_list) / len(prices_list), 2)
@@ -335,7 +335,7 @@ def check_prices():
                                 f"🛒 {product_name}\n\n"
                                 f"💵 السعر الحالي: EGP {current_price}\n"
                                 f"💵 السعر السابق: EGP {old_price}\n"
-                                f"📊 متوسط الأسعار: EGP {avg_price}\n"
+                                f"📊 متوسط الأسعار: EGP {avg_prices if 'avg_prices' in locals() else avg_price}\n"
                                 f"📉 نسبة الخصم: %{diff_pct}\n"
                                 f"{tagline}\n\n"
                                 f"📜 تاريخ الأسعار:\n"
@@ -345,6 +345,8 @@ def check_prices():
                             )
                             send(msg)
                             notifications_count += 1
+                        elif diff_pct > 70:
+                            print(f"[{index}/{total_products_count}] ⚠️ تم تجاهل تنبيه وهمي لنسبة خصم غير منطقية (%{diff_pct}) للمنتج: {product_name}")
                     
                     # تحديث السعر في الكاش دائماً للمقارنة الصحيحة لاحقاً
                     item_data["current_price"] = current_price
@@ -365,7 +367,7 @@ def check_prices():
     print(f"\n[⏳] انتهت الدورة الحالية (تم فحص {checked_count} منتج، وإرسال {notifications_count} تنبيه خصم مطابق للشروط).")
 
 if __name__ == "__main__":
-    print("البوت يعمل الآن في الخلفية (يبحث عن الخصومات التي تزيد عن 20% فقط)...")
+    print("البوت يعمل الآن في الخلفية (يبحث عن الخصومات الحقيقية بين 20% و 70%)...")
     while True:
         check_prices()
         time.sleep(900)
