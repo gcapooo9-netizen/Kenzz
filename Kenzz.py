@@ -10,23 +10,22 @@ from urllib.parse import urljoin, urlparse, parse_qs, urlencode, urlunparse
 import requests
 from bs4 import BeautifulSoup
 
-API_KEY = "255f212a69268a9288542daa586dfc24"
+API_KEY = "ef90327027edb8dd43385b71a66ff655"
 TOKEN = "8996279782:AAEJ-n3vP4K9bts15GC0_htKMceRC4yHj8E"
 CHAT_ID = "5124680786"
 
 BASE = "https://www.jumia.com.eg"
 LISTING_URLS = [
-    "https://www.jumia.com.eg/ar/mens-jackets-coats/defacto/",
+    "https://www.jumia.com.eg/ar/puffer-7992/",
 ]
-MAX_PAGES = 6  # أقصى عدد صفحات لكل رابط قايمة
+MAX_PAGES = 6
 
-CHECK_EVERY_SECONDS = 15 * 60  # كل ربع ساعة
+CHECK_EVERY_SECONDS = 30 * 60  # كل نص ساعة
 CSV_FILE = "price_history.csv"
 ALERTS_FILE = "alerts_sent.json"
 MIN_DROP_PERCENT = 20
-LOW_CREDITS_WARNING = 50
-REPEAT_ERROR_EVERY = 8  # لو المشكلة مستمرة يفكرك كل 8 لفات
-RUN_SANITY_CHECK = True  # فحص أولي بيقارن 3 منتجات بصفحاتهم
+LOW_CREDITS_WARNING = 400  # تنبيه مبكر
+REPEAT_ERROR_EVERY = 8
 
 
 class OutOfCredits(Exception):
@@ -36,7 +35,11 @@ class OutOfCredits(Exception):
 # ---------------------------- أدوات عامة ----------------------------
 
 def clean_error(e):
-    return str(e).replace(API_KEY, "***")[:300]
+    s = str(e)
+    for secret in (API_KEY, TOKEN):
+        if secret:
+            s = s.replace(secret, "***")
+    return s[:300]
 
 
 def send_telegram(text):
@@ -53,7 +56,7 @@ def send_telegram(text):
             )
             if r.status_code == 200:
                 return True
-            print(f"تليجرام رد بخطأ {r.status_code}: {r.text}")
+            print(f"تليجرام رد بخطأ {r.status_code}: {clean_error(r.text)}")
             if r.status_code == 429:
                 time.sleep(5)
                 continue
@@ -61,6 +64,16 @@ def send_telegram(text):
         except Exception as e:
             print(f"فشل إرسال تليجرام (محاولة {attempt}): {clean_error(e)}")
             time.sleep(3)
+    return False
+
+
+def send_critical(text):
+    """للرسايل المهمة: يفضل يحاول دقيقة بدقيقة لحد 30 مرة"""
+    for i in range(30):
+        if send_telegram(text):
+            return True
+        print(f"التنبيه المهم لسه ما وصلش، هحاول تاني ({i + 1}/30)")
+        time.sleep(60)
     return False
 
 
@@ -80,8 +93,24 @@ def get_credits():
 
 
 def to_number(text):
-    cleaned = re.sub(r"[^\d.]", "", text.replace(",", ""))
-    return float(cleaned) if cleaned else None
+    if not text:
+        return None
+    # استخراج أول رقم عشري أو صحيح لتجنب مشكلة الأسعار المكتوبة كمدى (مثل 500 - 700)
+    cleaned = text.replace(",", "")
+    match = re.search(r"\d+(?:\.\d+)?", cleaned)
+    return float(match.group(0)) if match else None
+
+
+def confirm_out_of_credits(code):
+    """401/403 ممكن تكون رصيد خلص أو سبب تاني، فنتأكد من حسابك الأول"""
+    credits = get_credits()
+    if credits and credits[0] is not None and credits[1] is not None:
+        remaining = credits[1] - credits[0]
+        if remaining > 50:
+            raise RuntimeError(
+                f"ScraperAPI رد بخطأ {code} رغم إن الرصيد المتبقي {remaining}"
+            )
+    raise OutOfCredits(f"ScraperAPI رد بخطأ {code}")
 
 
 def fetch(url):
@@ -93,8 +122,8 @@ def fetch(url):
                 params={"api_key": API_KEY, "url": url, "country_code": "eg"},
                 timeout=90,
             )
-            if r.status_code in (401, 403, 429):
-                raise OutOfCredits(f"ScraperAPI رد بخطأ {r.status_code}")
+            if r.status_code in (401, 403):
+                confirm_out_of_credits(r.status_code)
             r.raise_for_status()
             return r.text
         except OutOfCredits:
@@ -141,7 +170,6 @@ def with_page(url, page):
 
 
 def scan_listings():
-    """يرجع ({رابط: (اسم, سعر)}, partial) و partial=True لو صفحة فشلت في النص"""
     found = {}
     partial = False
     for start in LISTING_URLS:
@@ -175,7 +203,6 @@ def scan_listings():
 
 
 def parse_product_page(html):
-    """يرجع (الاسم, السعر) من صفحة المنتج نفسها"""
     soup = BeautifulSoup(html, "html.parser")
     name = None
     price = None
@@ -219,11 +246,12 @@ def get_product(url):
 # ---------------------------- التخزين ----------------------------
 
 def load_history():
-    """يرجع (آخر سعر لكل رابط, أعلى سعر لكل رابط)"""
     last, highest = {}, {}
     try:
         with open(CSV_FILE, encoding="utf-8") as f:
-            for row in list(csv.reader(f))[1:]:
+            reader = csv.reader(f)
+            next(reader, None)  # تخطي سطر العناوين بدون تحميل الملف كله في الرامات
+            for row in reader:
                 if len(row) > 3:
                     try:
                         p = float(row[1])
@@ -256,7 +284,7 @@ def load_alerts():
 def save_alerts(alerts):
     try:
         with open(ALERTS_FILE, "w", encoding="utf-8") as f:
-            json.dump(alerts, f)
+            json.dump(alerts, f, ensure_ascii=False, indent=2)
     except Exception as e:
         print("مقدرتش أحفظ التنبيهات:", e)
 
@@ -264,7 +292,6 @@ def save_alerts(alerts):
 # ---------------------------- المشاكل والرصيد ----------------------------
 
 def report_problem(state, key, text):
-    """يبعت أول مرة، وبعدين كل REPEAT_ERROR_EVERY لفات لو المشكلة مستمرة"""
     count = state["problems"].get(key, 0) + 1
     state["problems"][key] = count
     print(f"مشكلة ({count}): {text}")
@@ -287,45 +314,21 @@ def check_credits_warning(state):
     if remaining <= LOW_CREDITS_WARNING and not state["warned_credits"]:
         send_telegram(
             f"تنبيه: رصيد ScraperAPI قرب يخلص!\n"
-            f"المتبقي: {remaining} طلب من {limit}"
+            f"المتبقي: {remaining} نقطة من {limit}\n"
+            f"جهّز مفتاح جديد."
         )
         state["warned_credits"] = True
+    elif remaining > LOW_CREDITS_WARNING:
+        state["warned_credits"] = False
 
 
 # ---------------------------- المنطق الأساسي ----------------------------
 
-def sanity_check(found):
-    """يقارن سعر 3 منتجات في القايمة بسعرهم في صفحة المنتج"""
-    valid = [(u, n, p) for u, (n, p) in found.items() if p and p > 0]
-    if not valid:
-        return
-    step = max(1, len(valid) // 3)
-    sample = valid[::step][:3]
-    lines = ["فحص أولي: مقارنة سعر القايمة بسعر صفحة المنتج\n"]
-    for url, name, list_price in sample:
-        try:
-            _, page_price = get_product(url)
-        except OutOfCredits:
-            raise
-        except Exception as e:
-            lines.append(f"{name}\nفشل الفحص: {clean_error(e)}\n")
-            continue
-        if page_price is None:
-            lines.append(f"{name}\nمقدرتش أقرا السعر من الصفحة\n")
-        elif abs(page_price - list_price) / list_price <= 0.02:
-            lines.append(f"{name}\nمتطابق: {list_price:.0f} جنيه\n")
-        else:
-            lines.append(
-                f"{name}\nفرق! القايمة: {list_price:.0f} | الصفحة: {page_price:.0f}\n"
-            )
-    send_telegram("\n".join(lines))
-
-
 def process_item(url, name, price, last, highest, alerted, rejected):
     if price is None or price <= 0:
-        return  # قراءة غريبة، نتجاهلها
+        return
     if rejected.get(url) == price:
-        return  # سبق وصفحة المنتج كذّبت السعر ده
+        return
 
     prev = last.get(url)
     hi = highest.get(url)
@@ -373,16 +376,11 @@ def process_item(url, name, price, last, highest, alerted, rejected):
 
 
 def main():
-    state = {
-        "warned_credits": False,
-        "problems": {},
-        "known_count": 0,
-        "sanity_done": not RUN_SANITY_CHECK,
-    }
+    state = {"warned_credits": False, "problems": {}, "known_count": 0}
     last, highest = load_history()
     alerted = load_alerts()
     rejected = {}
-    print("بدأت المراقبة في صمت...")
+    print("بدأت المراقبة في صمت (كل نص ساعة)...")
 
     while True:
         try:
@@ -406,10 +404,6 @@ def main():
                 else:
                     clear_problem(state, "partial")
 
-                if not state["sanity_done"]:
-                    sanity_check(found)
-                    state["sanity_done"] = True
-
                 for url, (name, price) in found.items():
                     try:
                         process_item(url, name, price, last, highest, alerted, rejected)
@@ -424,9 +418,13 @@ def main():
 
         except OutOfCredits as e:
             print("الرصيد خلص:", e)
-            send_telegram(
-                "رصيد ScraperAPI خلص أو المفتاح وقف، والمراقبة اتوقفت.\n"
-                "ادخل على حسابك في scraperapi.com وشوف الرصيد."
+            send_critical(
+                "رصيد ScraperAPI خلص! المراقبة وقفت.\n\n"
+                "اعمل كده:\n"
+                "1) اعمل حساب جديد في scraperapi.com وخد المفتاح\n"
+                "2) غيّر قيمة API_KEY في السكريبت\n"
+                "3) شغّل السكريبت تاني\n\n"
+                "الأسعار المتسجلة محفوظة، هيكمل من عندها."
             )
             return
         except Exception as e:
@@ -441,8 +439,9 @@ if __name__ == "__main__":
     except KeyboardInterrupt:
         send_telegram("المراقبة اتوقفت يدويًا.")
     except Exception as e:
-        send_telegram(
+        send_critical(
             f"السكريبت وقع وبطل يشتغل!\nالسبب: {clean_error(e)}\n"
-            f"{traceback.format_exc()[-500:]}"
+            f"{clean_error(traceback.format_exc()[-400:])}"
         )
         raise
+    
