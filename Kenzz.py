@@ -10,7 +10,7 @@ from urllib.parse import urljoin, urlparse, parse_qs, urlencode, urlunparse
 import requests
 from bs4 import BeautifulSoup
 
-API_KEY = "138566e647ba1fb09ba8bdb3dd4333af"
+API_KEY = "e7faf26ce72c3961e7f53bb941c85538"
 TOKEN = "8996279782:AAEJ-n3vP4K9bts15GC0_htKMceRC4yHj8E"
 CHAT_ID = "5124680786"
 
